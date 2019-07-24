@@ -27,7 +27,7 @@ while getopts "r:s:" option; do
 done
 
 echo "Installing microsoft.insights extension for azure-cli"
-az extension add -n application-insights
+az extension add -n application-insights --debug
 
 echo "Creating Application Insights resource using ARM template"
 export resourceName
