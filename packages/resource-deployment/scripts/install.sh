@@ -88,8 +88,6 @@ az account set --subscription "$subscription"
 
 . "${0%/*}/create-queues.sh"
 
-. "${0%/*}/setup-cosmos-db.sh"
-
 . "${0%/*}/app-insights-create.sh"
 
 . "${0%/*}/batch-account-create.sh"
