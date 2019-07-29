@@ -3,7 +3,7 @@
         "logInConsole": true
     },
     "queueConfig": {
-        "maxQueueSize": 10
+        "maxQueueSize": 1000
     },
     "taskConfig": {
         "taskTimeoutInMinutes": 3
