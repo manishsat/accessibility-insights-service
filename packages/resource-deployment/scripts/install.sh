@@ -110,7 +110,7 @@ az account set --subscription "$subscription"
 
 . "${0%/*}/create-vnet.sh"
 
-. "${0%/*}/batch-account-create.sh"
+# . "${0%/*}/batch-account-create.sh"
 
 . "${0%/*}/push-secrets-to-key-vault.sh"
 
