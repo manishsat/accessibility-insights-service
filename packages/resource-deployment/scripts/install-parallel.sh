@@ -101,48 +101,4 @@ fi
 
 az account set --subscription "$subscription"
 
-. "${0%/*}/create-resource-group.sh"
-
-. "${0%/*}/create-storage-account.sh"
-
-resourceGroupSuffix=${storageAccountName:11}
-cosmosAccountName="allycosmos$resourceGroupSuffix"
-apiManagementName="apim-a11y$resourceGroupSuffix"
-
-echo "Starting parallel processes.."
-
-. "${0%/*}/create-api-management.sh" &
-apiManagmentProcess="$!"
-
-# . "${0%/*}/create-datalake-storage-account.sh" &
-# parallelizableProcesses="$!"
-
-. "${0%/*}/upload-files.sh" &
-parallelizableProcesses+="$!"
-
-. "${0%/*}/create-queues.sh" &
-parallelizableProcesses+=" $!"
-
-. "${0%/*}/setup-cosmos-db.sh" &
-parallelizableProcesses+=" $!"
-
-. "${0%/*}/create-vnet.sh"
-parallelizableProcesses+=" $!"
-
-waitForProcesses "${parallelizableProcesses[@]}"
-
-# The following scripts all depend on the result from the above scripts.
-# Additionally, these should run sequentially because of interdependence.
-. "${0%/*}/app-insights-create.sh"
-
-. "${0%/*}/batch-account-create.sh"
-
-. "${0%/*}/push-secrets-to-key-vault.sh"
-
-. "${0%/*}/function-app-create.sh"
-
-. "${0%/*}/job-schedule-create.sh"
-
-waitForProcesses "$apiManagmentProcess"
-
-. "${0%/*}/deploy-rest-api.sh"
+. "${0%/*}/create-dashboard.sh"
