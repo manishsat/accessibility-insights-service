@@ -18,13 +18,15 @@ export abstract class WebController {
         this.context = requestContext;
 
         await this.contextAwareLogger.setup(this.getBaseTelemetryProperties());
-        this.contextAwareLogger.logInfo('request started');
+        this.contextAwareLogger.logInfo(`request started with args - ${JSON.stringify(args)}`);
 
         if (this.validateRequest(...args)) {
             await this.handleRequest(...args);
         }
 
         this.setResponseContentTypeHeader();
+
+        this.contextAwareLogger.logInfo('processed request');
     }
 
     protected abstract validateRequest(...args: any[]): boolean;

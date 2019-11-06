@@ -38,6 +38,8 @@ export class ScanBatchRequestFeedController extends WebController {
     }
 
     public async handleRequest(...args: any[]): Promise<void> {
+        this.contextAwareLogger.logInfo('processing the documents');
+
         const batchDocuments = <OnDemandPageScanBatchRequest[]>args[0];
         await Promise.all(
             batchDocuments.map(async document => {
@@ -47,6 +49,7 @@ export class ScanBatchRequestFeedController extends WebController {
                 };
 
                 this.contextAwareLogger.trackEvent('ScanRequestsAccepted', { batchRequestId: document.id }, scanUrlsAddedMeasurements);
+                this.contextAwareLogger.logInfo(`processed batch request document with id ${document.id}`);
             }),
         );
     }
@@ -60,9 +63,13 @@ export class ScanBatchRequestFeedController extends WebController {
     private async processDocument(batchDocument: OnDemandPageScanBatchRequest): Promise<number> {
         const requests = batchDocument.scanRunBatchRequest.filter(request => request.scanId !== undefined);
         if (requests.length > 0) {
+            this.contextAwareLogger.logInfo('storing in permanent container');
             await this.writeRequestsToPermanentContainer(requests, batchDocument.id);
+            this.contextAwareLogger.logInfo(`storing requests to queue container`);
             await this.writeRequestsToQueueContainer(requests);
+            this.contextAwareLogger.logInfo(`deleting batch request document with id ${batchDocument.id}`);
             await this.scanDataProvider.deleteBatchRequest(batchDocument);
+            this.contextAwareLogger.logInfo(`deleted batch request document ${batchDocument.id}`);
         }
 
         return requests.length;
@@ -103,6 +110,8 @@ export class ScanBatchRequestFeedController extends WebController {
 
     private validateRequestData(documents: OnDemandPageScanBatchRequest[]): boolean {
         if (documents === undefined || documents.length === 0 || !documents.some(d => d.itemType === ItemType.scanRunBatchRequest)) {
+            this.contextAwareLogger.logInfo(`passed documents were not valid - ${JSON.stringify(documents)}`);
+
             return false;
         }
 
