@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 // tslint:disable: no-submodule-imports no-any
-import { logicalExpression } from '@babel/types';
 import { ServiceConfiguration } from 'common';
 import * as durableFunctions from 'durable-functions';
 import { IOrchestrationFunctionContext, ResponseMessage, Task, TimerTask } from 'durable-functions/lib/src/classes';
@@ -20,9 +19,83 @@ import {
     SerializableResponse,
 } from './activity-request-data';
 
+class OrchestrationSteps {
+    constructor(private readonly context: IOrchestrationFunctionContext, private readonly logger: ContextAwareLogger) {}
+
+    public *callHealthCheckActivity(): IterableIterator<SerializableResponse | Task> {
+        this.logOrchestrationStep(`Executing '${ActivityAction.getHealthStatus}' orchestration step.`);
+
+        return yield* this.callActivity(ActivityAction.getHealthStatus);
+    }
+
+    public *callSubmitScanRequestActivity(url: string): Generator<string | SerializableResponse | Task> {
+        this.logOrchestrationStep(`Executing '${ActivityAction.createScanRequest}' orchestration step.`);
+
+        const requestData: CreateScanRequestData = {
+            scanUrl: url,
+            priority: 0,
+        };
+
+        const response = yield* this.callActivity(ActivityAction.createScanRequest, requestData);
+
+        const scanId = this.getScanIdFromResponse(response);
+        this.logOrchestrationStep(`Orchestrator submitted scan with scan Id: ${scanId}`);
+
+        return yield scanId;
+    }
+
+    private ensureSuccessStatusCode(response: SerializableResponse, activityName: string): void {
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+            this.logOrchestrationStep(`Request failed - status code: ${response.statusCode}`, LogLevel.error, {
+                requestResponse: JSON.stringify(response),
+            });
+            throw new Error(`Request failed ${JSON.stringify(response)}`);
+        } else {
+            this.logOrchestrationStep(`${activityName} action completed with result ${JSON.stringify(response)}`);
+        }
+    }
+
+    private logOrchestrationStep(message: string, logType: LogLevel = LogLevel.info, properties?: { [name: string]: string }): void {
+        this.logger.log(message, logType, {
+            instanceId: this.context.df.instanceId,
+            isReplaying: this.context.df.isReplaying.toString(),
+            isNewStep: 'true',
+            ...properties,
+        });
+    }
+
+    private *callActivity(activityName: string, data?: unknown): Generator<Task | SerializableResponse> {
+        const activityRequestData: ActivityRequestData = {
+            activityName: activityName,
+            data: data,
+        };
+
+        const response = (yield this.context.df.callActivity(
+            HealthMonitorOrchestrationController.activityName,
+            activityRequestData,
+        )) as SerializableResponse;
+
+        this.ensureSuccessStatusCode(response, activityName);
+
+        return yield response;
+    }
+
+    private getScanIdFromResponse(response: SerializableResponse): string {
+        const body = response.body as ScanRunResponse[];
+        const scanRunResponse = body[0];
+        if (scanRunResponse.error !== undefined) {
+            this.logOrchestrationStep('Scan request failed', LogLevel.error, {
+                requestResponse: JSON.stringify(response),
+            });
+            throw new Error(`Request failed ${JSON.stringify(response)}`);
+        }
+
+        return scanRunResponse.scanId;
+    }
+}
 @injectable()
 export class HealthMonitorOrchestrationController extends WebController {
-    private static readonly activityName = 'health-monitor-client-func';
+    public static readonly activityName = 'health-monitor-client-func';
     public readonly apiVersion = '1.0';
     public readonly apiName = 'health-monitor-orchestration';
 
@@ -57,42 +130,42 @@ export class HealthMonitorOrchestrationController extends WebController {
     private getOrchestrationExecutor(): (context: IOrchestrationFunctionContext) => void {
         return this.df.orchestrator(function*(context: IOrchestrationFunctionContext): IterableIterator<unknown> {
             const thisObj = context.bindingData.controller as HealthMonitorOrchestrationController;
+            const orcSteps = new OrchestrationSteps(context, thisObj.contextAwareLogger);
 
-            const healthCheckResponse = yield thisObj.callHealthCheckActivity(context);
-            thisObj.ensureSuccessStatusCode(context, healthCheckResponse, ActivityAction.getHealthStatus);
+            yield* orcSteps.callHealthCheckActivity();
+            const response = yield* orcSteps.callSubmitScanRequestActivity('https://www.bing.com');
 
-            const submitScanRequestResponse = yield thisObj.callSubmitScanRequestActivity(context, 'https://www.bing.com');
-            thisObj.ensureSuccessStatusCode(context, submitScanRequestResponse, ActivityAction.createScanRequest);
-            const scanId = thisObj.getScanIdFromResponse(context, submitScanRequestResponse);
-            thisObj.logOrchestrationStep(context, `Orchestrator submitted scan with scan Id: ${scanId}`);
+            thisObj.logOrchestrationStep(context, `submit activity completed with response ${JSON.stringify(response)}`);
 
-            // tslint:disable-next-line: no-unsafe-any
-            let scanStatusResponse: SerializableResponse = yield thisObj.callGetScanStatusActivity(context, scanId);
-            thisObj.ensureSuccessStatusCode(context, scanStatusResponse, ActivityAction.getScanResult);
-            thisObj.verifyScanSubmitted(context, scanStatusResponse);
-
-            let scanStatus: RunState = 'pending';
-            const waitStartTime = moment.utc(context.df.currentUtcDateTime);
-            const waitEndTime = waitStartTime.add(context.bindingData.maxScanRequestWaitTimeInSeconds as number, 'seconds');
-            while (
-                scanStatus !== 'completed' &&
-                scanStatus !== 'failed' &&
-                moment.utc(context.df.currentUtcDateTime).isBefore(waitEndTime)
-            ) {
-                yield thisObj.callWaitTimer(context);
-                thisObj.logOrchestrationStep(context, 'Timer completed');
-                // tslint:disable-next-line: no-unsafe-any
-                scanStatusResponse = yield thisObj.callGetScanStatusActivity(context, scanId);
-                thisObj.ensureSuccessStatusCode(context, scanStatusResponse, ActivityAction.getScanResult);
-                scanStatus = thisObj.getScanStatus(context, scanStatusResponse);
-            }
-
-            const reportId = thisObj.getReportId(context, scanStatusResponse);
-
-            const scanReportResponse = yield thisObj.callGetScanReportActivity(context, scanId, reportId);
-            thisObj.ensureSuccessStatusCode(context, scanReportResponse, ActivityAction.getScanReport);
-
-            thisObj.logOrchestrationStep(context, 'Orchestration ended.');
+            // const healthCheckResponse = yield thisObj.callHealthCheckActivity(context);
+            // thisObj.ensureSuccessStatusCode(context, healthCheckResponse, ActivityAction.getHealthStatus);
+            // const submitScanRequestResponse = yield thisObj.callSubmitScanRequestActivity(context, 'https://www.bing.com');
+            // thisObj.ensureSuccessStatusCode(context, submitScanRequestResponse, ActivityAction.createScanRequest);
+            // const scanId = thisObj.getScanIdFromResponse(context, submitScanRequestResponse);
+            // thisObj.logOrchestrationStep(context, `Orchestrator submitted scan with scan Id: ${scanId}`);
+            // // tslint:disable-next-line: no-unsafe-any
+            // let scanStatusResponse: SerializableResponse = yield thisObj.callGetScanStatusActivity(context, scanId);
+            // thisObj.ensureSuccessStatusCode(context, scanStatusResponse, ActivityAction.getScanResult);
+            // thisObj.verifyScanSubmitted(context, scanStatusResponse);
+            // let scanStatus: RunState = 'pending';
+            // const waitStartTime = moment.utc(context.df.currentUtcDateTime);
+            // const waitEndTime = waitStartTime.add(context.bindingData.maxScanRequestWaitTimeInSeconds as number, 'seconds');
+            // while (
+            //     scanStatus !== 'completed' &&
+            //     scanStatus !== 'failed' &&
+            //     moment.utc(context.df.currentUtcDateTime).isBefore(waitEndTime)
+            // ) {
+            //     yield thisObj.callWaitTimer(context);
+            //     thisObj.logOrchestrationStep(context, 'Timer completed');
+            //     // tslint:disable-next-line: no-unsafe-any
+            //     scanStatusResponse = yield thisObj.callGetScanStatusActivity(context, scanId);
+            //     thisObj.ensureSuccessStatusCode(context, scanStatusResponse, ActivityAction.getScanResult);
+            //     scanStatus = thisObj.getScanStatus(context, scanStatusResponse);
+            // }
+            // const reportId = thisObj.getReportId(context, scanStatusResponse);
+            // const scanReportResponse = yield thisObj.callGetScanReportActivity(context, scanId, reportId);
+            // thisObj.ensureSuccessStatusCode(context, scanReportResponse, ActivityAction.getScanReport);
+            // thisObj.logOrchestrationStep(context, 'Orchestration ended.');
         });
     }
 

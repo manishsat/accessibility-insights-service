@@ -45,7 +45,7 @@
         "tslint": "5.12.1",
         "tslint-microsoft-contrib": "6.0.0",
         "typemoq": "^2.1.0",
-        "typescript": "^3.6.2",
+        "typescript": "^3.7.2",
         "webpack": "^4.29.4",
         "webpack-cli": "^3.2.3"
     },

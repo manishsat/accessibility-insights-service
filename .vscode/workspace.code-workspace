@@ -91,6 +91,7 @@
             "**/out": true,
             "**/test-results": true
         },
+        "typescript.tsdk": "./node_modules/typescript/lib",
         "cSpell.words": [
             "Newable",
             "Rescan",
