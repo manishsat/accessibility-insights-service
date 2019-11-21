@@ -42,4 +42,17 @@ describe(ScanDataProvider, () => {
         expect(document.partitionKey).toEqual(PartitionKey.scanRunBatchRequests);
         cosmosContainerClientMock.verifyAll();
     });
+
+    it('should delete document', async () => {
+        const document: OnDemandPageScanBatchRequest = ({
+            id: 'id1',
+        } as unknown) as OnDemandPageScanBatchRequest;
+        const expectedDoc: OnDemandPageScanBatchRequest = {
+            ...document,
+            isDeleted: true,
+        };
+        cosmosContainerClientMock.setup(async o => o.writeDocument(expectedDoc)).verifiable(Times.once());
+
+        await scanDataProvider.deleteBatchRequest(document);
+    });
 });

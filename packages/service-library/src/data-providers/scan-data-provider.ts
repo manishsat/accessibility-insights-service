@@ -25,6 +25,7 @@ export class ScanDataProvider {
     }
 
     public async deleteBatchRequest(request: OnDemandPageScanBatchRequest): Promise<void> {
-        await this.cosmosContainerClient.deleteDocument(request.id, request.partitionKey);
+        request.isDeleted = true;
+        await this.cosmosContainerClient.writeDocument(request);
     }
 }

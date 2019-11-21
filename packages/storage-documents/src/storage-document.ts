@@ -42,4 +42,9 @@ export interface StorageDocument {
      * Represents the resource etag required for optimistic concurrency control.
      */
     _etag?: string;
+
+    /**
+     * To mark that a document is deleted & should not be processed
+     */
+    isDeleted?: boolean;
 }
