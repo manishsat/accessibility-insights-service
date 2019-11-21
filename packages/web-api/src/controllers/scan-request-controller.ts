@@ -7,20 +7,23 @@ import { BatchScanRequestMeasurements, ContextAwareLogger, Logger } from 'logger
 import {
     ApiController,
     HttpResponse,
+    OnDemandPageScanRunResultProvider,
+    PageScanRequestProvider,
+    PartitionKeyFactory,
     ScanDataProvider,
     ScanRunRequest,
     ScanRunResponse,
     WebApiError,
     WebApiErrorCodes,
 } from 'service-library';
-import { ScanRunBatchRequest } from 'storage-documents';
+import { ItemType, OnDemandPageScanRequest, OnDemandPageScanResult, PartitionKey, ScanRunBatchRequest } from 'storage-documents';
 
 // tslint:disable: no-any
 type DictionaryStringToNumber = { [name: string]: number };
 
 interface ProcessedBatchRequestData {
-    scanRequestsToBeStoredInDb: ScanRunBatchRequest[];
-    scanResponses: ScanRunResponse[];
+    scanRequestToBeStoredInDb: ScanRunBatchRequest;
+    scanResponse: ScanRunResponse;
 }
 
 interface RunRequestValidationResult {
@@ -39,6 +42,9 @@ export class ScanRequestController extends ApiController {
         @inject(GuidGenerator) private readonly guidGenerator: GuidGenerator,
         @inject(ServiceConfiguration) protected readonly serviceConfig: ServiceConfiguration,
         @inject(ContextAwareLogger) contextAwareLogger: ContextAwareLogger,
+        @inject(PartitionKeyFactory) private readonly partitionKeyFactory: PartitionKeyFactory,
+        @inject(OnDemandPageScanRunResultProvider) private readonly onDemandPageScanRunResultProvider: OnDemandPageScanRunResultProvider,
+        @inject(PageScanRequestProvider) private readonly pageScanRequestProvider: PageScanRequestProvider,
     ) {
         super(contextAwareLogger);
     }
@@ -60,22 +66,24 @@ export class ScanRequestController extends ApiController {
             return;
         }
         const batchId = this.guidGenerator.createGuid();
-        const processedData = this.getProcessedRequestData(batchId, payload);
-        await this.scanDataProvider.writeScanRunBatchRequest(batchId, processedData.scanRequestsToBeStoredInDb);
+        const processedData = this.getProcessedRequestData(batchId, payload[0]);
+
+        await this.writeRequestsToPermanentContainer(processedData.scanRequestToBeStoredInDb);
+        await this.writeRequestsToQueueContainer(processedData.scanRequestToBeStoredInDb);
+
         this.context.res = {
             status: 202, // Accepted
             body: this.getResponse(processedData),
         };
 
-        const totalUrls: number = processedData.scanResponses.length;
-        const invalidUrls: number = processedData.scanResponses.filter(i => i.error !== undefined).length;
+        const totalUrls: number = 1;
+        const invalidUrls: number = processedData.scanResponse.error !== undefined ? 1 : 0;
 
-        this.contextAwareLogger.setCustomProperties({ batchRequestId: batchId });
+        this.contextAwareLogger.setCustomProperties({ scanId: processedData.scanResponse.scanId, scanUrl: processedData.scanResponse.url });
         this.contextAwareLogger.logInfo('Accepted scan run batch request', {
-            batchId: batchId,
             totalUrls: totalUrls.toString(),
             invalidUrls: invalidUrls.toString(),
-            scanRequestResponse: JSON.stringify(processedData.scanResponses),
+            scanRequestResponse: JSON.stringify(processedData.scanResponse),
         });
 
         const measurements: BatchScanRequestMeasurements = {
@@ -88,13 +96,45 @@ export class ScanRequestController extends ApiController {
         this.contextAwareLogger.trackEvent('BatchScanRequestSubmitted', null, measurements);
     }
 
+    private async writeRequestsToPermanentContainer(request: ScanRunBatchRequest): Promise<void> {
+        const requestDocument: OnDemandPageScanResult = {
+            id: request.scanId,
+            url: request.url,
+            priority: request.priority,
+            itemType: ItemType.onDemandPageScanRunResult,
+            partitionKey: this.partitionKeyFactory.createPartitionKeyForDocument(ItemType.onDemandPageScanRunResult, request.scanId),
+            run: {
+                state: 'accepted',
+                timestamp: new Date().toJSON(),
+            },
+            batchRequestId: request.scanId,
+        };
+
+        await this.onDemandPageScanRunResultProvider.writeScanRuns([requestDocument]);
+
+        this.contextAwareLogger.logInfo(`[ScanRequestController] Added requests to permanent container`);
+    }
+
+    private async writeRequestsToQueueContainer(request: ScanRunBatchRequest): Promise<void> {
+        const requestDocument: OnDemandPageScanRequest = {
+            id: request.scanId,
+            url: request.url,
+            priority: request.priority,
+            itemType: ItemType.onDemandPageScanRequest,
+            partitionKey: PartitionKey.pageScanRequestDocuments,
+        };
+
+        await this.pageScanRequestProvider.insertRequests([requestDocument]);
+        this.contextAwareLogger.logInfo(`[ScanRequestController] Added requests to queue container`);
+    }
+
     private getResponse(processedData: ProcessedBatchRequestData): any {
         const isV2 = this.context.req.query['api-version'] === '2.0' ? true : false;
         let response;
         if (isV2) {
-            response = processedData.scanResponses.find(x => x !== undefined);
+            response = processedData.scanResponse;
         } else {
-            response = processedData.scanResponses;
+            response = [processedData.scanResponse];
         }
 
         return response;
@@ -116,36 +156,34 @@ export class ScanRequestController extends ApiController {
         return payload;
     }
 
-    private getProcessedRequestData(batchId: string, scanRunRequests: ScanRunRequest[]): ProcessedBatchRequestData {
-        const scanRequestsToBeStoredInDb: ScanRunBatchRequest[] = [];
-        const scanResponses: ScanRunResponse[] = [];
+    private getProcessedRequestData(batchId: string, scanRunRequest: ScanRunRequest): ProcessedBatchRequestData {
+        let scanRequestToBeStoredInDb: ScanRunBatchRequest;
+        let scanResponse: ScanRunResponse;
 
-        scanRunRequests.forEach(scanRunRequest => {
-            const runRequestValidationResult = this.validateRunRequest(scanRunRequest);
-            if (runRequestValidationResult.valid) {
-                // preserve GUID origin for a single batch scope
-                const scanId = this.guidGenerator.createGuidFromBaseGuid(batchId);
-                scanRequestsToBeStoredInDb.push({
-                    scanId: scanId,
-                    priority: isNil(scanRunRequest.priority) ? 0 : scanRunRequest.priority,
-                    url: scanRunRequest.url,
-                });
+        const runRequestValidationResult = this.validateRunRequest(scanRunRequest);
+        if (runRequestValidationResult.valid) {
+            // preserve GUID origin for a single batch scope
+            const scanId = this.guidGenerator.createGuidFromBaseGuid(batchId);
+            scanRequestToBeStoredInDb = {
+                scanId: scanId,
+                priority: isNil(scanRunRequest.priority) ? 0 : scanRunRequest.priority,
+                url: scanRunRequest.url,
+            };
 
-                scanResponses.push({
-                    scanId: scanId,
-                    url: scanRunRequest.url,
-                });
-            } else {
-                scanResponses.push({
-                    url: scanRunRequest.url,
-                    error: runRequestValidationResult.error,
-                });
-            }
-        });
+            scanResponse = {
+                scanId: scanId,
+                url: scanRunRequest.url,
+            };
+        } else {
+            scanResponse = {
+                url: scanRunRequest.url,
+                error: runRequestValidationResult.error,
+            };
+        }
 
         return {
-            scanRequestsToBeStoredInDb: scanRequestsToBeStoredInDb,
-            scanResponses: scanResponses,
+            scanRequestToBeStoredInDb: scanRequestToBeStoredInDb,
+            scanResponse: scanResponse,
         };
     }
 
