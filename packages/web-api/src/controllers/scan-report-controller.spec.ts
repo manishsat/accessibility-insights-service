@@ -40,7 +40,9 @@ describe(ScanReportController, () => {
                 rawBody: ``,
                 query: {},
             },
-            bindingData: {},
+            bindingData: {
+                reportType: 'html',
+            },
         });
         buffer = new Buffer('A chunk of data');
         contentMock = Mock.ofType(Readable);
@@ -58,7 +60,8 @@ describe(ScanReportController, () => {
             content: contentMock.object,
         };
         reportServiceMock
-            .setup(async rm => rm.readSarifReport(It.isAnyString()))
+            // tslint:disable-next-line: no-unsafe-any
+            .setup(async rm => rm.readReport(It.isAnyString(), It.isAny()))
             .returns(async id => {
                 return id === validId ? downloadResponse : notFoundDownloadResponse;
             });
@@ -109,6 +112,32 @@ describe(ScanReportController, () => {
         it('should return stream', async () => {
             context.bindingData.reportId = validId;
             scanReportController = createScanResultController(context);
+
+            await scanReportController.handleRequest();
+
+            contentMock.verifyAll();
+            expect(context.res.status).toEqual(200);
+            expect(context.res.body).toEqual(buffer);
+        });
+
+        it('should fail on on invalid report type', async () => {
+            context.bindingData.reportId = validId;
+            context.bindingData.reportType = 'invalid-type';
+            scanReportController = createScanResultController(context);
+
+            await scanReportController.handleRequest();
+
+            contentMock.verifyAll();
+            expect(context.res).toEqual(HttpResponse.getErrorResponse(WebApiErrorCodes.unsupportedReportTypeError));
+        });
+
+        it('report type should default to sarif', async () => {
+            context.bindingData.reportId = validId;
+            context.bindingData.reportType = undefined;
+            scanReportController = createScanResultController(context);
+
+            // tslint:disable-next-line: no-unsafe-any
+            reportServiceMock.setup(async rm => rm.readReport(It.isAny(), 'sarif')).verifiable(Times.once());
 
             await scanReportController.handleRequest();
 

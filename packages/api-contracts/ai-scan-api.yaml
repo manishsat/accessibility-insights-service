@@ -127,6 +127,47 @@ paths:
                                 href: >-
                                     SARIF document per following specification
                                     https://docs.oasis-open.org/sarif/sarif/v2.1.0/cs01/sarif-v2.1.0-cs01.html
+            deprecated: true
+    '/scans/{scanid}/reports/{reporttype}/{reportid}':
+        get:
+            summary: Get accessibility scan report
+            operationId: getTypedReport
+            parameters:
+                - name: scanid
+                  in: path
+                  required: true
+                  description: The scan request ID
+                  schema:
+                      type: string
+                - name: reporttype
+                  in: path
+                  required: true
+                  description: The report format (sarif or html)
+                  schema:
+                      type: string
+                - name: reportid
+                  in: path
+                  required: true
+                  description: The report ID
+                  schema:
+                      type: string
+                - name: api-version
+                  in: query
+                  required: true
+                  description: The client API version
+                  schema:
+                      type: string
+                  example: '1.0'
+            responses:
+                '200':
+                    description: OK
+                    content:
+                        application/json:
+                            example:
+                                href: >-
+                                    SARIF document per following specification
+                                    https://docs.oasis-open.org/sarif/sarif/v2.1.0/cs01/sarif-v2.1.0-cs01.html
+                                    or HTML document
 components:
     schemas:
         ScanRunRequest:

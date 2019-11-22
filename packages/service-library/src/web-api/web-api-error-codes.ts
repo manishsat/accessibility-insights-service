@@ -15,7 +15,8 @@ export declare type WebApiErrorCodeName =
     | 'UnsupportedContentType'
     | 'UnsupportedApiVersion'
     | 'OutOfRangePriority'
-    | 'MalformedBody';
+    | 'MalformedBody'
+    | 'UnsupportedReportType';
 
 export interface WebApiErrorCode {
     statusCode: number;
@@ -128,6 +129,15 @@ export class WebApiErrorCodes {
             code: 'MalformedBody',
             codeId: 4011,
             message: 'The request body does not match the API schema for the given API version.',
+        },
+    };
+
+    public static unsupportedReportTypeError: WebApiErrorCode = {
+        statusCode: 500,
+        error: {
+            code: 'UnsupportedReportType',
+            codeId: 4012,
+            message: 'The specified report type is not supported.',
         },
     };
 

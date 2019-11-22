@@ -3,12 +3,13 @@
 import { GuidGenerator, ServiceConfiguration } from 'common';
 import { inject, injectable } from 'inversify';
 import { ContextAwareLogger } from 'logger';
-import { ApiController, HttpResponse, PageScanRunReportService, WebApiErrorCodes } from 'service-library';
+import { ApiController, HttpResponse, PageScanRunReportService, ReportFormat, WebApiErrorCodes } from 'service-library';
 import { Readable } from 'stream';
 import { BodyParser } from './../utils/body-parser';
 
 @injectable()
 export class ScanReportController extends ApiController {
+    public static readonly validReportTypes = ['html', 'sarif'];
     public readonly apiVersion = '1.0';
     public readonly apiName = 'web-api-get-report';
 
@@ -24,13 +25,23 @@ export class ScanReportController extends ApiController {
 
     public async handleRequest(): Promise<void> {
         const reportId = <string>this.context.bindingData.reportId;
+        let reportType = <string>this.context.bindingData.reportType;
+
+        reportType = reportType === undefined ? 'sarif' : reportType;
+
+        if (!ScanReportController.validReportTypes.includes(reportType)) {
+            this.context.res = HttpResponse.getErrorResponse(WebApiErrorCodes.unsupportedReportTypeError);
+
+            return;
+        }
+
         if (!this.guidGenerator.isValidV6Guid(reportId)) {
             this.context.res = HttpResponse.getErrorResponse(WebApiErrorCodes.invalidResourceId);
 
             return;
         }
 
-        const blobContentDownloadResponse = await this.pageScanRunReportService.readSarifReport(reportId);
+        const blobContentDownloadResponse = await this.pageScanRunReportService.readReport(reportId, reportType as ReportFormat);
         if (blobContentDownloadResponse.notFound === true) {
             this.context.res = HttpResponse.getErrorResponse(WebApiErrorCodes.resourceNotFound);
 
