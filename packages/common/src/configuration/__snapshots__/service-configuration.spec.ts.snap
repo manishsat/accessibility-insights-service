@@ -80,8 +80,6 @@ Object {
   "scanConfig": Object {
     "accessibilityRuleExclusionList": Object {
       "default": Array [
-        "landmark-unique",
-        "scrollable-region-focusable",
         "image-redundant-alt",
         "checkboxgroup",
         "empty-heading",
@@ -97,11 +95,9 @@ Object {
         "frame-title-unique",
         "heading-order",
         "hidden-content",
-        "href-no-hash",
         "label-title-only",
         "region",
         "skip-link",
-        "unique-landmark",
         "landmark-main-is-top-level",
         "landmark-one-main",
         "aria-dpub-role-fallback",
@@ -116,6 +112,8 @@ Object {
         "css-orientation-lock",
         "form-field-multiple-labels",
         "landmark-complementary-is-top-level",
+        "scrollable-region-focusable",
+        "landmark-unique",
       ],
       "doc": "Axe core rule exclusion list",
       "format": [Function],
@@ -231,8 +229,6 @@ Object {
   "scanConfig": Object {
     "accessibilityRuleExclusionList": Object {
       "default": Array [
-        "landmark-unique",
-        "scrollable-region-focusable",
         "image-redundant-alt",
         "checkboxgroup",
         "empty-heading",
@@ -248,11 +244,9 @@ Object {
         "frame-title-unique",
         "heading-order",
         "hidden-content",
-        "href-no-hash",
         "label-title-only",
         "region",
         "skip-link",
-        "unique-landmark",
         "landmark-main-is-top-level",
         "landmark-one-main",
         "aria-dpub-role-fallback",
@@ -267,6 +261,8 @@ Object {
         "css-orientation-lock",
         "form-field-multiple-labels",
         "landmark-complementary-is-top-level",
+        "scrollable-region-focusable",
+        "landmark-unique",
       ],
       "doc": "Axe core rule exclusion list",
       "format": [Function],
