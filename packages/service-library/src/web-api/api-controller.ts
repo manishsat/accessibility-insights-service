@@ -11,6 +11,7 @@ import { WebController } from './web-controller';
 
 @injectable()
 export abstract class ApiController extends WebController {
+    protected static readonly supportedApiVersions = ['1.0', '2.0', '3.0'];
     protected abstract readonly serviceConfig: ServiceConfiguration;
 
     public hasPayload(): boolean {
@@ -74,7 +75,8 @@ export abstract class ApiController extends WebController {
             return false;
         }
 
-        if (this.context.req.query['api-version'] !== this.apiVersion && this.context.req.query['api-version'] !== '2.0') {
+        const reqApiVersion = this.context.req.query['api-version'];
+        if (!ApiController.supportedApiVersions.includes(reqApiVersion) || Number(reqApiVersion) > Number(this.apiVersion)) {
             this.context.res = HttpResponse.getErrorResponse(WebApiErrorCodes.unsupportedApiVersion);
 
             return false;

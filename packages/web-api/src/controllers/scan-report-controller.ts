@@ -10,7 +10,7 @@ import { BodyParser } from './../utils/body-parser';
 @injectable()
 export class ScanReportController extends ApiController {
     public static readonly validReportTypes = ['html', 'sarif'];
-    public readonly apiVersion = '1.0';
+    public readonly apiVersion = '2.0';
     public readonly apiName = 'web-api-get-report';
 
     public constructor(

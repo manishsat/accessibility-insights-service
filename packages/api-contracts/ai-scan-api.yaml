@@ -157,7 +157,7 @@ paths:
                   description: The client API version
                   schema:
                       type: string
-                  example: '1.0'
+                  example: '2.0'
             responses:
                 '200':
                     description: OK

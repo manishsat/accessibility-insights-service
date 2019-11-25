@@ -52,7 +52,7 @@ describe(ScanReportController, () => {
             .setup(async bpm => bpm.getRawBody(contentMock.object as Readable))
             .returns(async () => buffer)
             .verifiable(Times.once());
-        context.req.query['api-version'] = '1.0';
+        context.req.query['api-version'] = '2.0';
         context.req.headers['content-type'] = 'application/json';
         reportServiceMock = Mock.ofType<PageScanRunReportService>();
         downloadResponse = {
@@ -90,21 +90,23 @@ describe(ScanReportController, () => {
         return controller;
     }
 
-    describe('handleRequest', () => {
+    describe('invoke', () => {
         it('should return 400 if request id is invalid', async () => {
             context.bindingData.reportId = invalidId;
             scanReportController = createScanResultController(context);
 
-            await scanReportController.handleRequest();
+            await scanReportController.invoke(context);
 
-            expect(context.res).toEqual(HttpResponse.getErrorResponse(WebApiErrorCodes.invalidResourceId));
+            const expectedResponse = HttpResponse.getErrorResponse(WebApiErrorCodes.invalidResourceId);
+            expect(context.res.status).toEqual(expectedResponse.status);
+            expect(context.res.body).toEqual(expectedResponse.body);
         });
 
         it('should return 404 if report not found', async () => {
             context.bindingData.reportId = notFoundId;
             scanReportController = createScanResultController(context);
 
-            await scanReportController.handleRequest();
+            await scanReportController.invoke(context);
 
             expect(context.res.status).toEqual(404);
         });
@@ -113,7 +115,7 @@ describe(ScanReportController, () => {
             context.bindingData.reportId = validId;
             scanReportController = createScanResultController(context);
 
-            await scanReportController.handleRequest();
+            await scanReportController.invoke(context);
 
             contentMock.verifyAll();
             expect(context.res.status).toEqual(200);
@@ -125,10 +127,12 @@ describe(ScanReportController, () => {
             context.bindingData.reportType = 'invalid-type';
             scanReportController = createScanResultController(context);
 
-            await scanReportController.handleRequest();
+            await scanReportController.invoke(context);
 
             contentMock.verifyAll();
-            expect(context.res).toEqual(HttpResponse.getErrorResponse(WebApiErrorCodes.unsupportedReportTypeError));
+            const expectedResponse = HttpResponse.getErrorResponse(WebApiErrorCodes.unsupportedReportTypeError);
+            expect(context.res.status).toEqual(expectedResponse.status);
+            expect(context.res.body).toEqual(expectedResponse.body);
         });
 
         it('report type should default to sarif', async () => {
@@ -139,7 +143,7 @@ describe(ScanReportController, () => {
             // tslint:disable-next-line: no-unsafe-any
             reportServiceMock.setup(async rm => rm.readReport(It.isAny(), 'sarif')).verifiable(Times.once());
 
-            await scanReportController.handleRequest();
+            await scanReportController.invoke(context);
 
             contentMock.verifyAll();
             expect(context.res.status).toEqual(200);
