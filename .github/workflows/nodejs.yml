@@ -49,8 +49,10 @@ jobs:
       run: mkdir -p ../staging
     - name: Copy Filed to staging
       run: rsync -a --include 'job-manager/dist/**/*' --include 'web-api-scan-job-manager/dist/**/*' --include 'runner/dist/**/*' --include 'web-api-scan-runner/dist/**/*' --include 'scan-request-sender/dist/**/*' --include 'web-api-scan-request-sender/dist/**/*' --include 'resource-deployment/dist/**/*' --include 'web-api/dist/**/*' --include 'web-workers/dist/**/*'  --exclude '**/node_modules/**/*' --exclude  '**/.vscode/**/*' --exclude '**/*.md' packages/ ../staging
+    - name: list staging
+      run: ls -lart ../staging
     - name: upload production artifacts
-      uses: actions/upload-artifacr@v1
+      uses: actions/upload-artifact@v1
       with:
         name: prod artifacts
         path: ../staging
