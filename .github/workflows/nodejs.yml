@@ -47,8 +47,8 @@ jobs:
         path: test-results/unit/coverage/cobertura-coverage.xml
     - name: Create Staging directory
       run: mkdir -p ../staging
-    - name: Copy Filed to staging
-      run: rsync -a --include 'job-manager/dist/**/*' --include 'web-api-scan-job-manager/dist/**/*' --include 'runner/dist/**/*' --include 'web-api-scan-runner/dist/**/*' --include 'scan-request-sender/dist/**/*' --include 'web-api-scan-request-sender/dist/**/*' --include 'resource-deployment/dist/**/*' --include 'web-api/dist/**/*' --include 'web-workers/dist/**/*'  --exclude '**/node_modules/**/*' --exclude  '**/.vscode/**/*' --exclude '**/*.md' packages/ ../staging
+    - name: copy production artifacts to staging
+      run: rsync -r -v --include=/{,'job-manager/'{,dist/{,'**'}}} --include=/{,'web-api-scan-job-manager/'{,dist/{,'**'}}} --include=/{,'runner/'{,dist/{,'**'}}} --include=/{,'web-api-scan-runner/'{,dist/{,'**'}}} --include=/{,'scan-request-sender/'{,dist/{,'**'}}} --include=/{,'web-api-scan-request-sender/'{,dist/{,'**'}}} --include=/{,'resource-deployment/'{,dist/{,'**'}}} --include=/{,'web-api/'{,dist/{,'**'}}} --include=/{,'web-workers/'{,dist/{,'**'}}} --exclude='*' packages/ ../staging
     - name: list staging
       run: ls -lart ../staging
     - name: upload production artifacts
