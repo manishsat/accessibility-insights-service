@@ -55,8 +55,15 @@ jobs:
         path: ../staging
 
   canary-deployment:
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - run: | 
+            az account set --subscription ${{ secrets.subscriptionId }}
       - name: Download math result for job 1
         uses: actions/download-artifact@v1
         with:
