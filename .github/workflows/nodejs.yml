@@ -54,7 +54,7 @@ jobs:
         name: prod artifacts
         path: ../staging
 
-  Canary Deployment:
+  canary-deployment:
     runs-on: ubuntu-latest
     steps:
       - name: Azure Login
