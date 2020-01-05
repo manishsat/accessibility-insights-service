@@ -68,7 +68,7 @@ jobs:
         uses: actions/download-artifact@v1
         with:
           name: build-artifacts
-      - run: echo  ${{ GITHUB_WORKSPACE }}
-      - run: /bin/bash ${{ GITHUB_WORKSPACE }}/build-artifacts/resource-deployment/dist/scripts/install-parallel.sh  -r "${{ secrets.resourceGroup }}" -s "${{ secrets.subscriptionId }}" -l "${{ secrets.location }}" -e "${{ secrets.environment }}" -c "${{ secrets.clientId }}" -o "${{ secrets.orgName }}" -p "${{ secrets.publisherEmail }}" -t "${{ secrets.clientSecret }}"
+      - run: echo  $GITHUB_WORKSPACE
+      - run: /bin/bash $GITHUB_WORKSPACE/build-artifacts/resource-deployment/dist/scripts/install-parallel.sh  -r "${{ secrets.resourceGroup }}" -s "${{ secrets.subscriptionId }}" -l "${{ secrets.location }}" -e "${{ secrets.environment }}" -c "${{ secrets.clientId }}" -o "${{ secrets.orgName }}" -p "${{ secrets.publisherEmail }}" -t "${{ secrets.clientSecret }}"
         
         
