@@ -57,10 +57,6 @@ jobs:
   canary-deployment:
     runs-on: ubuntu-latest
     steps:
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
       - name: Download math result for job 1
         uses: actions/download-artifact@v1
         with:
