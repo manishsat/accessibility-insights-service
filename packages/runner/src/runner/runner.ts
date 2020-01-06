@@ -73,6 +73,7 @@ export class Runner {
             await this.pageStateUpdaterTask.setCompleteState(pageScanResult, scanMetadata, runTime);
 
             // update website root scan state document with last page scan result
+            // may be use bulk update approach
             this.logger.logInfo(`Updating last page scan result of the current page on the website document`);
             await this.websiteStateUpdaterTask.update(pageScanResult, scanMetadata, runTime);
         } finally {
