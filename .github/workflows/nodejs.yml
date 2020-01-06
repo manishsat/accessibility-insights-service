@@ -64,11 +64,13 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
       - run: | 
             az account set --subscription ${{ secrets.subscriptionId }}
-      - name: Download math result for job 1
+      - name: Download build artifacts
         uses: actions/download-artifact@v1
         with:
           name: build-artifacts
-      - run: echo  $GITHUB_WORKSPACE
-      - run: /bin/bash $GITHUB_WORKSPACE/build-artifacts/resource-deployment/dist/scripts/install-parallel.sh  -r "${{ secrets.resourceGroup }}" -s "${{ secrets.subscriptionId }}" -l "${{ secrets.location }}" -e "${{ secrets.environment }}" -c "${{ secrets.clientId }}" -o "${{ secrets.orgName }}" -p "${{ secrets.publisherEmail }}" -t "${{ secrets.clientSecret }}"
+      - name: Deploy binaries & Update Infra
+        run: /bin/bash $GITHUB_WORKSPACE/build-artifacts/resource-deployment/dist/scripts/install-parallel.sh  -r "${{ secrets.resourceGroup }}" -s "${{ secrets.subscriptionId }}" -l "${{ secrets.location }}" -e "${{ secrets.environment }}" -c "${{ secrets.clientId }}" -o "${{ secrets.orgName }}" -p "${{ secrets.publisherEmail }}" -t "${{ secrets.clientSecret }}"
+      - name: Restart VM pool nodes
+        run: /bin/bash $GITHUB_WORKSPACE/build-artifacts/resource-deployment/dist/scripts/restart-vm-pools.sh -r "${{ secrets.resourceGroup }}" -s "${{ secrets.subscriptionId }}"
         
         
