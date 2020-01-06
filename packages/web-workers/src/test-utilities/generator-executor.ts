@@ -16,7 +16,7 @@ export class GeneratorExecutor<T = {}> {
 
         return currentCall;
     }
-
+    //function to run till end.
     public runTillEnd(): T {
         let done: Boolean = false;
         while (done !== true) {
