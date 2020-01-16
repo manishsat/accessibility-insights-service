@@ -3,9 +3,10 @@
 
 // tslint:disable: no-submodule-imports no-unsafe-any
 import { AvailabilityTestConfig } from 'common';
-import { IOrchestrationFunctionContext, Task } from 'durable-functions/lib/src/classes';
+import { IOrchestrationFunctionContext, Task, TaskSet } from 'durable-functions/lib/src/classes';
+import { TestContextData, TestEnvironment, TestGroupName } from 'functional-tests';
 import { isNil } from 'lodash';
-import { ContextAwareLogger, LogLevel } from 'logger';
+import { Logger, LogLevel } from 'logger';
 import * as moment from 'moment';
 import { RunState, ScanRunErrorResponse, ScanRunResponse, ScanRunResultResponse } from 'service-library';
 import { ActivityAction } from './contracts/activity-actions';
@@ -14,6 +15,7 @@ import {
     CreateScanRequestData,
     GetScanReportData,
     GetScanResultData,
+    RunFunctionalTestGroupData,
     SerializableResponse,
     TrackAvailabilityData,
 } from './controllers/activity-request-data';
@@ -36,6 +38,10 @@ export interface OrchestrationSteps {
     validateScanRequestSubmissionState(scanId: string): Generator<Task, void, SerializableResponse & void>;
     waitForScanRequestCompletion(scanId: string): Generator<Task, ScanRunResultResponse, SerializableResponse & void>;
     invokeGetScanReportRestApi(scanId: string, reportId: string): Generator<Task, void, SerializableResponse & void>;
+    runFunctionalTestGroups(
+        testContextData: TestContextData,
+        testGroupNames: TestGroupName[],
+    ): Generator<TaskSet, void, SerializableResponse & void>;
 }
 
 export class OrchestrationStepsImpl implements OrchestrationSteps {
@@ -44,7 +50,7 @@ export class OrchestrationStepsImpl implements OrchestrationSteps {
     constructor(
         private readonly context: IOrchestrationFunctionContext,
         private readonly availabilityTestConfig: AvailabilityTestConfig,
-        private readonly logger: ContextAwareLogger,
+        private readonly logger: Logger,
     ) {}
 
     public *invokeHealthCheckRestApi(): Generator<Task, void, SerializableResponse & void> {
@@ -153,6 +159,40 @@ export class OrchestrationStepsImpl implements OrchestrationSteps {
         this.logOrchestrationStep(`Orchestrator submitted scan with scan Id: ${scanId}`);
 
         return scanId;
+    }
+
+    public *runFunctionalTestGroups(testContextData: TestContextData, testGroupNames: TestGroupName[]): Generator<TaskSet, void, void> {
+        const parallelTasks = testGroupNames.map((testGroupName: TestGroupName) => {
+            const testData: RunFunctionalTestGroupData = {
+                runId: this.context.df.instanceId,
+                testGroupName,
+                testContextData,
+                environment: this.getTestEnvironment(this.availabilityTestConfig.environmentDefinition),
+            };
+
+            const activityRequestData: ActivityRequestData = {
+                activityName: ActivityAction.runFunctionalTestGroup,
+                data: testData,
+            };
+
+            return this.context.df.callActivity(OrchestrationStepsImpl.activityTriggerFuncName, activityRequestData);
+        });
+
+        this.logOrchestrationStep(`Starting functional tests: ${testGroupNames}`);
+
+        yield this.context.df.Task.all(parallelTasks);
+
+        this.logOrchestrationStep(`Completed functional tests: ${testGroupNames}`);
+    }
+
+    private getTestEnvironment(environment: string): TestEnvironment {
+        for (const [key, value] of Object.entries(TestEnvironment)) {
+            if (key === environment) {
+                return value as TestEnvironment;
+            }
+        }
+
+        return TestEnvironment.none;
     }
 
     private *callGetScanStatusActivity(scanId: string): Generator<Task, SerializableResponse, SerializableResponse & void> {

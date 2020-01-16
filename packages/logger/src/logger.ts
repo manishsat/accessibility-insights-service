@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 import { VError } from 'verror';
-import { AvailabilityTelemetry } from './availablity-telemetry';
+import { AvailabilityTelemetry } from './availability-telemetry';
 import { LoggerClient } from './logger-client';
 import { LoggerEvent } from './logger-event';
 import { TelemetryMeasurements } from './logger-event-measurements';
@@ -107,6 +107,6 @@ export abstract class Logger {
             return;
         }
 
-        throw new Error('Logger not setup');
+        throw new Error('The logger instance is not initialized. Ensure the setup() method is invoked by derived class implementation.');
     }
 }

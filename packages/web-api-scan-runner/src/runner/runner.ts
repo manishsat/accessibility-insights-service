@@ -98,6 +98,9 @@ export class Runner {
                 pageScanResult.scannedUrl = axeScanResults.scannedUrl;
             }
         }
+
+        pageScanResult.run.pageTitle = axeScanResults.pageTitle;
+        pageScanResult.run.pageResponseCode = axeScanResults.pageResponseCode;
     }
 
     private resetPageScanResultState(originPageScanResult: OnDemandPageScanResult): OnDemandPageScanResult {
@@ -134,10 +137,6 @@ export class Runner {
     }
 
     private async generateAndSaveScanReports(axeResults: AxeScanResults): Promise<OnDemandPageScanReport[]> {
-        axeResults.results.inapplicable = [];
-        axeResults.results.incomplete = [];
-        axeResults.results.passes = [];
-
         this.logger.logInfo(`Generating reports from scan results`);
         const reports = this.reportGenerator.generateReports(axeResults);
 

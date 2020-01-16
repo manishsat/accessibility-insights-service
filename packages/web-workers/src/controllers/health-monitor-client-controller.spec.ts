@@ -3,30 +3,59 @@
 import 'reflect-metadata';
 
 import { Context } from '@azure/functions';
-import { ServiceConfiguration } from 'common';
-import { ContextAwareLogger } from 'logger';
-import { IMock, Mock, Times } from 'typemoq';
+import { GuidGenerator, ServiceConfiguration } from 'common';
+import { FunctionalTestGroup, TestContextData, TestEnvironment, TestGroupConstructor, TestRunner } from 'functional-tests';
+import { OnDemandPageScanRunResultProvider } from 'service-library';
+import { IMock, It, Mock, Times } from 'typemoq';
 import { A11yServiceClient, ResponseWithBodyType } from 'web-api-client';
 import { ActivityAction } from '../contracts/activity-actions';
-import { ActivityRequestData, TrackAvailabilityData } from './activity-request-data';
+import { MockableLogger } from '../test-utilities/mockable-logger';
+import { ActivityRequestData, RunFunctionalTestGroupData, TrackAvailabilityData } from './activity-request-data';
 import { HealthMonitorClientController } from './health-monitor-client-controller';
 
 // tslint:disable:no-object-literal-type-assertion no-any no-unsafe-any
 
+class FunctionalTestGroupStub extends FunctionalTestGroup {
+    public testContextData: TestContextData;
+
+    public async run(testContextData: TestContextData, env: TestEnvironment): Promise<TestContextData> {
+        return testContextData;
+    }
+
+    public setTestContext(testContextData: TestContextData): void {
+        this.testContextData = testContextData;
+    }
+
+    // tslint:disable-next-line:no-empty
+    protected registerTestCases(env: TestEnvironment): void {}
+}
+
 describe(HealthMonitorClientController, () => {
     let testSubject: HealthMonitorClientController;
     let serviceConfigurationMock: IMock<ServiceConfiguration>;
-    let contextAwareLoggerMock: IMock<ContextAwareLogger>;
+    let loggerMock: IMock<MockableLogger>;
     let context: Context;
     let webApiClientMock: IMock<A11yServiceClient>;
     let jsonResponse: any;
     let expectedResponse: ResponseWithBodyType<any>;
+    let guidGeneratorMock: IMock<GuidGenerator>;
+    let onDemandPageScanRunResultProviderMock: IMock<OnDemandPageScanRunResultProvider>;
+    let testRunnerMock: IMock<TestRunner>;
+
+    const testGroupTypes: { [key: string]: TestGroupConstructor } = {
+        PostScan: FunctionalTestGroupStub,
+    };
+    const releaseId = 'release id';
+    const runId = 'run id';
 
     beforeEach(() => {
         serviceConfigurationMock = Mock.ofType(ServiceConfiguration);
-        contextAwareLoggerMock = Mock.ofType(ContextAwareLogger);
+        loggerMock = Mock.ofType(MockableLogger);
         webApiClientMock = Mock.ofType(A11yServiceClient);
+        guidGeneratorMock = Mock.ofType(GuidGenerator);
+        onDemandPageScanRunResultProviderMock = Mock.ofType(OnDemandPageScanRunResultProvider);
         context = <Context>(<unknown>{ bindingDefinitions: {}, bindings: {} });
+        testRunnerMock = Mock.ofType(TestRunner);
 
         jsonResponse = { testResponse: true } as any;
         expectedResponse = {
@@ -36,14 +65,22 @@ describe(HealthMonitorClientController, () => {
             },
         } as ResponseWithBodyType<any>;
 
-        testSubject = new HealthMonitorClientController(serviceConfigurationMock.object, contextAwareLoggerMock.object, async () =>
-            Promise.resolve(webApiClientMock.object),
+        process.env.RELEASE_VERSION = releaseId;
+
+        testSubject = new HealthMonitorClientController(
+            serviceConfigurationMock.object,
+            loggerMock.object,
+            async () => Promise.resolve(webApiClientMock.object),
+            onDemandPageScanRunResultProviderMock.object,
+            guidGeneratorMock.object,
+            testRunnerMock.object,
+            testGroupTypes,
         );
     });
 
     afterEach(() => {
         webApiClientMock.verifyAll();
-        contextAwareLoggerMock.verifyAll();
+        loggerMock.verifyAll();
     });
 
     describe('invoke', () => {
@@ -66,7 +103,6 @@ describe(HealthMonitorClientController, () => {
         });
 
         it('handles getScanResult', async () => {
-            const scanUrl = 'scan-url';
             const scanId = 'scan-id';
             webApiClientMock
                 .setup(async w => w.getScanStatus(scanId))
@@ -120,13 +156,44 @@ describe(HealthMonitorClientController, () => {
                 name: 'track availability data name',
                 telemetry: 'availability telemetry' as any,
             };
-            contextAwareLoggerMock.setup(async l => l.trackAvailability(data.name, data.telemetry)).verifiable(Times.once());
+            loggerMock.setup(async l => l.trackAvailability(data.name, data.telemetry)).verifiable(Times.once());
 
             const args: ActivityRequestData = {
                 activityName: ActivityAction.trackAvailability,
                 data: data,
             };
             await testSubject.invoke(context, args);
+        });
+
+        it('handles runFunctionalTestGroup', async () => {
+            const data: RunFunctionalTestGroupData = {
+                runId: runId,
+                testGroupName: 'PostScan',
+                testContextData: {
+                    scanUrl: 'scanUrl',
+                },
+                environment: TestEnvironment.canary,
+            };
+            const args: ActivityRequestData = {
+                activityName: ActivityAction.runFunctionalTestGroup,
+                data: data,
+            };
+
+            let testContainer: any;
+            testRunnerMock.setup(t => t.setLogger(loggerMock.object)).verifiable(Times.once());
+            testRunnerMock
+                .setup(async t => t.run(It.isAny(), TestEnvironment.canary, releaseId, runId))
+                .callback(testGroup => {
+                    testContainer = testGroup;
+                })
+                .verifiable(Times.once());
+
+            await testSubject.invoke(context, args);
+
+            const functionalTestGroupStub = testContainer as FunctionalTestGroupStub;
+            expect(functionalTestGroupStub).toBeDefined();
+            expect(functionalTestGroupStub.testContextData).toEqual(data.testContextData);
+            testRunnerMock.verifyAll();
         });
     });
 });

@@ -71,7 +71,11 @@
         {
             "name": "functional-tests",
             "path": "../packages/functional-tests"
-        },        
+        },
+        {
+            "name": "cli",
+            "path": "../packages/cli"
+        },
         {
             "name": "root",
             "path": "../"
@@ -96,6 +100,7 @@
             "**/test-results": true
         },
         "cSpell.words": [
+            "Finalizer",
             "Newable",
             "Rescan",
             "SARIF",
@@ -105,9 +110,9 @@
             "etag",
             "injectable",
             "inversify",
+            "serializable",
             "typemoq",
-            "upsert",
-            "serializable"
+            "upsert"
         ],
         "csharp.suppressDotnetRestoreNotification": true
     },

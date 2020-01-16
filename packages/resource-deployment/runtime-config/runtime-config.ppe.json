@@ -3,7 +3,7 @@
         "logInConsole": true
     },
     "queueConfig": {
-        "maxQueueSize": 200
+        "maxQueueSize": 20
     },
     "taskConfig": {
         "taskTimeoutInMinutes": 5
@@ -17,5 +17,8 @@
     },
     "restApiConfig": {
         "scanRequestProcessingDelayInSeconds": 300
+    },
+    "availabilityTestConfig": {
+        "environmentDefinition": "insider"
     }
 }

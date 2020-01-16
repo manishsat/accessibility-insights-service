@@ -4,15 +4,16 @@
 import 'reflect-metadata';
 
 import { Context } from '@azure/functions';
-import { ServiceConfiguration } from 'common';
-import { AvailabilityTestConfig } from 'common/dist/configuration/service-configuration';
+import { AvailabilityTestConfig, ServiceConfiguration } from 'common';
 import * as durableFunctions from 'durable-functions';
-import { IOrchestrationFunctionContext, Task } from 'durable-functions/lib/src/classes';
-import { ContextAwareLogger } from 'logger';
+import { IOrchestrationFunctionContext, Task, TaskSet } from 'durable-functions/lib/src/classes';
+import { TestContextData, TestEnvironment, TestGroupName } from 'functional-tests';
+import { Logger } from 'logger';
 import { ScanRunResultResponse } from 'service-library';
 import { IMock, It, Mock, Times } from 'typemoq';
 import { OrchestrationSteps } from '../orchestration-steps';
 import { GeneratorExecutor } from '../test-utilities/generator-executor';
+import { MockableLogger } from '../test-utilities/mockable-logger';
 import { SerializableResponse } from './activity-request-data';
 import { HealthMonitorOrchestrationController } from './health-monitor-orchestration-controller';
 
@@ -26,10 +27,10 @@ class TestableHealthMonitorOrchestrationController extends HealthMonitorOrchestr
         public context: Context,
         public availabilityTestConfig: AvailabilityTestConfig,
         serviceConfig: ServiceConfiguration,
-        contextAwareLogger: ContextAwareLogger,
+        logger: Logger,
         df: typeof durableFunctions,
     ) {
-        super(serviceConfig, contextAwareLogger, df);
+        super(serviceConfig, logger, df);
     }
 
     protected createOrchestrationSteps(
@@ -50,6 +51,7 @@ export interface OrchestratorStepsCallCount {
     waitForScanCompletionCount: number;
     verifyScanSubmittedCount: number;
     callSubmitScanRequest: number;
+    runFunctionalTestsCount: number;
 }
 
 class OrchestrationStepsStub implements OrchestrationSteps {
@@ -59,11 +61,13 @@ class OrchestrationStepsStub implements OrchestrationSteps {
         waitForScanCompletionCount: 0,
         verifyScanSubmittedCount: 0,
         callSubmitScanRequest: 0,
+        runFunctionalTestsCount: 0,
     };
 
     public scanId = 'scan-id';
     public reportId = 'report-id';
     public shouldThrowException = false;
+    public functionalTestsRun: TestGroupName[] = [];
 
     constructor(private readonly availabilityTestConfig: AvailabilityTestConfig) {}
 
@@ -119,6 +123,17 @@ class OrchestrationStepsStub implements OrchestrationSteps {
         return yield this.scanId;
     }
 
+    public *runFunctionalTestGroups(
+        testContextData: TestContextData,
+        testGroupNames: TestGroupName[],
+    ): Generator<TaskSet, void, SerializableResponse & void> {
+        this.orchestratorStepsCallCount.runFunctionalTestsCount += 1;
+        this.functionalTestsRun.push(...testGroupNames);
+        this.throwExceptionIfExpected();
+
+        yield undefined;
+    }
+
     private throwExceptionIfExpected(): void {
         if (this.shouldThrowException) {
             throw new Error('test error at orchestration step');
@@ -129,7 +144,7 @@ class OrchestrationStepsStub implements OrchestrationSteps {
 describe('HealthMonitorOrchestrationController', () => {
     let testSubject: TestableHealthMonitorOrchestrationController;
     let serviceConfigurationMock: IMock<ServiceConfiguration>;
-    let contextAwareLoggerMock: IMock<ContextAwareLogger>;
+    let loggerMock: IMock<MockableLogger>;
     let contextStub: IOrchestrationFunctionContext;
     let df: IMock<typeof durableFunctions>;
     let availabilityTestConfig: AvailabilityTestConfig;
@@ -143,10 +158,12 @@ describe('HealthMonitorOrchestrationController', () => {
             urlToScan: 'some-url',
             scanWaitIntervalInSeconds: 10,
             maxScanWaitTimeInSeconds: 20,
+            logQueryTimeRange: 'P1D',
+            environmentDefinition: TestEnvironment[TestEnvironment.canary],
         };
 
         serviceConfigurationMock = Mock.ofType(ServiceConfiguration);
-        contextAwareLoggerMock = Mock.ofType(ContextAwareLogger);
+        loggerMock = Mock.ofType(MockableLogger);
         orchestratorStepsStub = new OrchestrationStepsStub(availabilityTestConfig);
 
         contextStub = ({
@@ -172,7 +189,7 @@ describe('HealthMonitorOrchestrationController', () => {
             contextStub,
             availabilityTestConfig,
             serviceConfigurationMock.object,
-            contextAwareLoggerMock.object,
+            loggerMock.object,
             df.object,
         );
     });
@@ -234,9 +251,11 @@ describe('HealthMonitorOrchestrationController', () => {
                 getScanReportCount: 0,
                 verifyScanSubmittedCount: 0,
                 waitForScanCompletionCount: 0,
+                runFunctionalTestsCount: 0,
             };
 
             const actualStepsCallCount: OrchestratorStepsCallCount = orchestratorStepsStub.orchestratorStepsCallCount;
+            const expectedTests: TestGroupName[] = [];
 
             await testSubject.invoke(contextStub);
 
@@ -249,6 +268,12 @@ describe('HealthMonitorOrchestrationController', () => {
             expect(actualStepsCallCount).toEqual(expectedStepsCallCount);
 
             orchestratorIterator.next();
+            expectedTests.push('PostScan', 'ScanStatus');
+            expectedStepsCallCount.runFunctionalTestsCount += 1;
+            expect(actualStepsCallCount).toEqual(expectedStepsCallCount);
+            expect(orchestratorStepsStub.functionalTestsRun).toEqual(expectedTests);
+
+            orchestratorIterator.next();
             expectedStepsCallCount.verifyScanSubmittedCount += 1;
             expect(actualStepsCallCount).toEqual(expectedStepsCallCount);
 
@@ -257,14 +282,32 @@ describe('HealthMonitorOrchestrationController', () => {
             expect(actualStepsCallCount).toEqual(expectedStepsCallCount);
 
             orchestratorIterator.next();
+            expectedTests.push('ScanPreProcessing', 'ScanQueueing');
+            expectedStepsCallCount.runFunctionalTestsCount += 1;
+            expect(actualStepsCallCount).toEqual(expectedStepsCallCount);
+            expect(orchestratorStepsStub.functionalTestsRun).toEqual(expectedTests);
+
+            orchestratorIterator.next();
             expectedStepsCallCount.getScanReportCount += 1;
             expect(actualStepsCallCount).toEqual(expectedStepsCallCount);
+
+            orchestratorIterator.next();
+            expectedTests.push('ScanReports');
+            expectedStepsCallCount.runFunctionalTestsCount += 1;
+            expect(actualStepsCallCount).toEqual(expectedStepsCallCount);
+            expect(orchestratorStepsStub.functionalTestsRun).toEqual(expectedTests);
+
+            orchestratorIterator.next();
+            expectedTests.push('Finalizer');
+            expectedStepsCallCount.runFunctionalTestsCount += 1;
+            expect(actualStepsCallCount).toEqual(expectedStepsCallCount);
+            expect(orchestratorStepsStub.functionalTestsRun).toEqual(expectedTests);
 
             expect(orchestratorIterator.next().done).toBe(true);
             expect(actualStepsCallCount).toEqual(expectedStepsCallCount);
         });
 
-        test.each([0, 1, 2, 3, 4])('activities throw exception on step %o', async failedStep => {
+        test.each([0, 1, 2, 3, 4, 5, 6, 7])('activities throw exception on step %o', async failedStep => {
             await testSubject.invoke(contextStub);
 
             for (let stepNum = 0; stepNum < failedStep; stepNum += 1) {

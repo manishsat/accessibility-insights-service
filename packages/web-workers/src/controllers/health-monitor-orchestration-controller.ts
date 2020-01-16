@@ -4,8 +4,9 @@
 import { AvailabilityTestConfig, ServiceConfiguration } from 'common';
 import * as durableFunctions from 'durable-functions';
 import { IOrchestrationFunctionContext } from 'durable-functions/lib/src/classes';
+import { TestContextData } from 'functional-tests';
 import { inject, injectable } from 'inversify';
-import { ContextAwareLogger } from 'logger';
+import { Logger } from 'logger';
 import { WebController } from 'service-library';
 import { OrchestrationSteps, OrchestrationStepsImpl } from '../orchestration-steps';
 
@@ -16,14 +17,14 @@ export class HealthMonitorOrchestrationController extends WebController {
 
     public constructor(
         @inject(ServiceConfiguration) protected readonly serviceConfig: ServiceConfiguration,
-        @inject(ContextAwareLogger) contextAwareLogger: ContextAwareLogger,
+        @inject(Logger) logger: Logger,
         private readonly df = durableFunctions,
     ) {
-        super(contextAwareLogger);
+        super(logger);
     }
 
     protected async handleRequest(...args: any[]): Promise<void> {
-        this.contextAwareLogger.logInfo(`Executing '${this.context.executionContext.functionName}' function.`, {
+        this.logger.logInfo(`Executing '${this.context.executionContext.functionName}' function.`, {
             funcName: this.context.executionContext.functionName,
             invocationId: this.context.executionContext.invocationId,
         });
@@ -40,7 +41,7 @@ export class HealthMonitorOrchestrationController extends WebController {
         context: IOrchestrationFunctionContext,
         availabilityTestConfig: AvailabilityTestConfig,
     ): OrchestrationSteps {
-        return new OrchestrationStepsImpl(context, availabilityTestConfig, this.contextAwareLogger);
+        return new OrchestrationStepsImpl(context, availabilityTestConfig, this.logger);
     }
 
     private invokeOrchestration(): void {
@@ -54,12 +55,27 @@ export class HealthMonitorOrchestrationController extends WebController {
             const thisObj = context.bindingData.controller as HealthMonitorOrchestrationController;
             const availabilityTestConfig = context.bindingData.availabilityTestConfig as AvailabilityTestConfig;
             const orchestrationSteps = thisObj.createOrchestrationSteps(context, availabilityTestConfig);
+            const testContextData: TestContextData = {
+                scanUrl: availabilityTestConfig.urlToScan,
+            };
 
             yield* orchestrationSteps.invokeHealthCheckRestApi();
+
             const scanId = yield* orchestrationSteps.invokeSubmitScanRequestRestApi(availabilityTestConfig.urlToScan);
+            testContextData.scanId = scanId;
+            yield* orchestrationSteps.runFunctionalTestGroups(testContextData, ['PostScan', 'ScanStatus']);
+
             yield* orchestrationSteps.validateScanRequestSubmissionState(scanId);
             const scanRunStatus = yield* orchestrationSteps.waitForScanRequestCompletion(scanId);
-            yield* orchestrationSteps.invokeGetScanReportRestApi(scanId, scanRunStatus.reports[0].reportId);
+            yield* orchestrationSteps.runFunctionalTestGroups(testContextData, ['ScanPreProcessing', 'ScanQueueing']);
+
+            const reportId = scanRunStatus.reports[0].reportId;
+            testContextData.reportId = reportId;
+            yield* orchestrationSteps.invokeGetScanReportRestApi(scanId, reportId);
+            yield* orchestrationSteps.runFunctionalTestGroups(testContextData, ['ScanReports']);
+
+            // The last test group in a functional test suite to indicated a suite run completion
+            yield* orchestrationSteps.runFunctionalTestGroups(testContextData, ['Finalizer']);
         });
     }
 

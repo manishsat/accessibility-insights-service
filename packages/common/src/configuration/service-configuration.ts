@@ -53,6 +53,8 @@ export interface AvailabilityTestConfig {
     urlToScan: string;
     scanWaitIntervalInSeconds: number;
     maxScanWaitTimeInSeconds: number;
+    logQueryTimeRange: string;
+    environmentDefinition: string;
 }
 
 @injectable()
@@ -247,6 +249,16 @@ export class ServiceConfiguration {
                     format: 'int',
                     default: 60,
                     doc: 'Time to wait before checking the url scan status again',
+                },
+                logQueryTimeRange: {
+                    format: String,
+                    default: 'P1D',
+                    doc: 'The Application Insights query time range',
+                },
+                environmentDefinition: {
+                    format: String,
+                    default: 'canary',
+                    doc: 'The environment definition used to select tests to run',
                 },
             },
         };

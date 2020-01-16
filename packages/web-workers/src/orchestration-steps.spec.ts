@@ -5,9 +5,9 @@ import 'reflect-metadata';
 
 // tslint:disable:no-submodule-imports
 import { AvailabilityTestConfig } from 'common';
-import { DurableOrchestrationContext, IOrchestrationFunctionContext } from 'durable-functions/lib/src/classes';
+import { DurableOrchestrationContext, IOrchestrationFunctionContext, ITaskMethods, Task } from 'durable-functions/lib/src/classes';
+import { TestContextData, TestGroupName } from 'functional-tests';
 import { isNil } from 'lodash';
-import { ContextAwareLogger } from 'logger';
 import * as moment from 'moment';
 import { ScanRunErrorResponse, ScanRunResponse, ScanRunResultResponse, WebApiError } from 'service-library';
 import { IMock, It, Mock, Times } from 'typemoq';
@@ -15,11 +15,13 @@ import { ActivityAction } from './contracts/activity-actions';
 import {
     ActivityRequestData,
     CreateScanRequestData,
+    RunFunctionalTestGroupData,
     SerializableResponse,
     TrackAvailabilityData,
 } from './controllers/activity-request-data';
 import { OrchestrationStepsImpl, OrchestrationTelemetryProperties } from './orchestration-steps';
 import { GeneratorExecutor } from './test-utilities/generator-executor';
+import { MockableLogger } from './test-utilities/mockable-logger';
 
 // tslint:disable:no-object-literal-type-assertion no-unsafe-any no-any no-null-keyword
 
@@ -27,18 +29,18 @@ class MockableDurableOrchestrationContext extends DurableOrchestrationContext {
     public readonly instanceId: string = null;
     public readonly isReplaying: boolean = null;
     public readonly currentUtcDateTime: Date = null;
+    // tslint:disable-next-line:variable-name
+    public readonly Task: ITaskMethods = null;
 }
+
+const orchestrationInstanceId = 'orchestration instance Id';
 
 describe(OrchestrationStepsImpl, () => {
     let context: IOrchestrationFunctionContext;
     let orchestrationContext: IMock<DurableOrchestrationContext>;
     let testSubject: OrchestrationStepsImpl;
-    const availabilityTestConfig: AvailabilityTestConfig = {
-        scanWaitIntervalInSeconds: 10,
-        maxScanWaitTimeInSeconds: 20,
-        urlToScan: 'https://www.bing.com',
-    };
-    let contextAwareLoggerMock: IMock<ContextAwareLogger>;
+    let availabilityTestConfig: AvailabilityTestConfig;
+    let loggerMock: IMock<MockableLogger>;
     const scanUrl = 'https://www.bing.com';
     const scanId = 'test-scan-id';
     let currentUtcDateTime: Date;
@@ -46,11 +48,19 @@ describe(OrchestrationStepsImpl, () => {
     beforeEach(() => {
         currentUtcDateTime = new Date(2019, 2, 1);
         orchestrationContext = Mock.ofType(MockableDurableOrchestrationContext);
-        orchestrationContext.setup(oc => oc.instanceId).returns(() => 'test instance id');
+        orchestrationContext.setup(oc => oc.instanceId).returns(() => orchestrationInstanceId);
         orchestrationContext.setup(oc => oc.isReplaying).returns(() => true);
         orchestrationContext.setup(oc => oc.currentUtcDateTime).returns(() => currentUtcDateTime);
 
-        contextAwareLoggerMock = Mock.ofType(ContextAwareLogger);
+        availabilityTestConfig = {
+            scanWaitIntervalInSeconds: 10,
+            maxScanWaitTimeInSeconds: 20,
+            urlToScan: 'https://www.bing.com',
+            logQueryTimeRange: 'P1D',
+            environmentDefinition: 'canary',
+        };
+
+        loggerMock = Mock.ofType(MockableLogger);
 
         context = <IOrchestrationFunctionContext>(<unknown>{
             bindingDefinitions: {},
@@ -64,7 +74,7 @@ describe(OrchestrationStepsImpl, () => {
             df: orchestrationContext.object,
         });
 
-        testSubject = new OrchestrationStepsImpl(context, availabilityTestConfig, contextAwareLoggerMock.object);
+        testSubject = new OrchestrationStepsImpl(context, availabilityTestConfig, loggerMock.object);
     });
 
     afterEach(() => {
@@ -440,6 +450,62 @@ describe(OrchestrationStepsImpl, () => {
         });
     });
 
+    describe('run functional test groups', () => {
+        let generatorExecutor: GeneratorExecutor;
+        let activityRequestData: ActivityRequestData[];
+        const testContextData: TestContextData = {
+            scanUrl: 'scan url',
+        };
+        const testGroupNames: TestGroupName[] = ['PostScan', 'ScanStatus'];
+        let taskMethodsMock: IMock<ITaskMethods>;
+
+        beforeEach(() => {
+            generatorExecutor = new GeneratorExecutor<string>(testSubject.runFunctionalTestGroups(testContextData, testGroupNames));
+            activityRequestData = testGroupNames.map((testGroupName: TestGroupName) => {
+                return {
+                    activityName: ActivityAction.runFunctionalTestGroup,
+                    data: {
+                        runId: orchestrationInstanceId,
+                        testGroupName,
+                        testContextData,
+                        environment: 1,
+                    } as RunFunctionalTestGroupData,
+                };
+            });
+            taskMethodsMock = Mock.ofType<ITaskMethods>();
+            orchestrationContext.setup(oc => oc.Task).returns(() => taskMethodsMock.object);
+        });
+
+        it('triggers all test groups', () => {
+            const task: Task = {
+                isCompleted: true,
+                isFaulted: false,
+                action: undefined,
+            };
+
+            activityRequestData.forEach((data: ActivityRequestData) => {
+                orchestrationContext
+                    .setup(oc => oc.callActivity(OrchestrationStepsImpl.activityTriggerFuncName, data))
+                    .returns(() => task)
+                    .verifiable(Times.once());
+            });
+
+            let taskList: Task[];
+            taskMethodsMock
+                .setup(t => t.all(It.isAny()))
+                .callback((tasks: Task[]) => (taskList = tasks))
+                .verifiable(Times.once());
+
+            generatorExecutor.runTillEnd();
+
+            expect(taskList.length === 2);
+            expect(taskList[0]).toEqual(task);
+            expect(taskList[1]).toEqual(task);
+
+            taskMethodsMock.verifyAll();
+        });
+    });
+
     function setupCreateTimer(fireTime: moment.Moment, callback?: Function): void {
         orchestrationContext
             .setup(oc => oc.createTimer(fireTime.toDate()))
@@ -484,7 +550,16 @@ describe(OrchestrationStepsImpl, () => {
     }
 
     function setupVerifyTrackActivityCall(success: Boolean, properties?: OrchestrationTelemetryProperties): void {
-        const trackAvailabilityRequestData: ActivityRequestData = {
+        const trackAvailabilityRequestData = getTrackAvailabilityRequestData(success, properties);
+
+        orchestrationContext
+            .setup(oc => oc.callActivity(OrchestrationStepsImpl.activityTriggerFuncName, trackAvailabilityRequestData))
+            .returns(() => undefined)
+            .verifiable(Times.once());
+    }
+
+    function getTrackAvailabilityRequestData(success: Boolean, properties?: OrchestrationTelemetryProperties): ActivityRequestData {
+        return {
             activityName: ActivityAction.trackAvailability,
             data: {
                 name: 'workerAvailabilityTest',
@@ -497,10 +572,5 @@ describe(OrchestrationStepsImpl, () => {
                 },
             } as TrackAvailabilityData,
         };
-
-        orchestrationContext
-            .setup(oc => oc.callActivity(OrchestrationStepsImpl.activityTriggerFuncName, trackAvailabilityRequestData))
-            .returns(() => undefined)
-            .verifiable(Times.once());
     }
 });
